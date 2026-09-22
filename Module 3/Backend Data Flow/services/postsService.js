@@ -1,34 +1,65 @@
-const repo = require('./../repository/postsRepo');
-const AppError = require('./../utils/AppError');
+const repo = require('../repository/postsRepo');
+const votesService = require('./votesService');
+const AppError = require('../utils/AppError');
 
-const EDIT_WINDOW_MS = 24 * 60 * 60 * 1000; // a post may only be edited within 24h
+const MAX_LIMIT = 50;
 
-exports.getAll = async () => repo.findAll();
-exports.create = async ({ authorId, title, body }) => repo.insert({ authorId, title, body });
+exports.getAll = async ({ page = 1, limit = 10 }) => {
+  if (!Number.isInteger(page) || page < 1) {
+    throw new AppError(
+      'Page must be a positive integer',
+      400,
+      'INVALID_PAGINATION'
+    );
+  }
 
-/**
- * TODO (Domain rule): edit a post.
- * Implement these guards IN ORDER, each throwing an AppError, before any write:
- *   1. The post must exist          -> AppError('Post not found', 404)
- *   2. Only the author may edit it  -> AppError('You can only edit your own post', 403)
- *   3. It must be within the window  -> AppError('Post can no longer be edited', 403)
- *      (now - post.createdAt must be <= EDIT_WINDOW_MS)
- * Only when all guards pass: return repo.update(postId, changes).
- */
-exports.editPost = async (postId, userId, changes) => {
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new AppError(
+      'Limit must be a positive integer',
+      400,
+      'INVALID_PAGINATION'
+    );
+  }
+
+  const safeLimit = Math.min(limit, MAX_LIMIT);
+
+  const posts = await repo.findAll();
+
+  const total = posts.length;
+  const totalPages = Math.ceil(total / safeLimit);
+
+  const start = (page - 1) * safeLimit;
+  const data = posts.slice(start, start + safeLimit);
+
+  return {
+    data,
+    meta: {
+      page,
+      limit: safeLimit,
+      total,
+      totalPages
+    }
+  };
+};
+
+exports.getById = async (postId) => {
   const post = await repo.findById(postId);
 
   if (!post) {
-    throw new AppError('Post not found', 404);
+    throw new AppError(
+      'Post not found',
+      404,
+      'POST_NOT_FOUND'
+    );
   }
 
-  if (post.authorId !== userId) {
-    throw new AppError('You can only edit your own post', 403);
-  }
+  return post;
+};
 
-  if (Date.now() - new Date(post.createdAt).getTime() > EDIT_WINDOW_MS) {
-    throw new AppError('Post can no longer be edited', 403);
-  }
+exports.create = async ({ authorId, title, body }) => {
+  return repo.insert({ authorId, title, body });
+};
 
-  return repo.update(postId, changes);
+exports.like = async (postId, userId) => {
+  return votesService.castVote(postId, userId);
 };
