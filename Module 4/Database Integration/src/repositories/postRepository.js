@@ -1,36 +1,92 @@
-const seed = require('../data/postSeed');
 
-// Starter implementation: same async contract, temporary in-memory storage.
-const posts = seed.map((post) => ({ ...post }));
-let nextId = posts.reduce((max, post) => Math.max(max, post.id), 0) + 1;
+const prisma = require("../db/prisma");
+
+function translateDatabaseError(error) {
+  if (error.code === "P2002") {
+  console.error("Unique constraint error:", error);
+  const translated = new Error(
+    "A record with these details already exists."
+  );
+  translated.statusCode = 409;
+  return translated;
+}
+
+  if (error.code === "P2003") {
+    const translated = new Error(
+      "The requested relationship is invalid."
+    );
+    translated.statusCode = 400;
+    return translated;
+  }
+
+  return error;
+}
 
 async function findAll() {
-  return posts.map((post) => ({ ...post }));
+  return prisma.post.findMany({
+    orderBy: { id: "asc" },
+  });
 }
 
 async function findById(id) {
-  return posts.find((post) => post.id === Number(id)) || null;
+  return prisma.post.findUnique({
+    where: { id: Number(id) },
+  });
 }
 
 async function create(fields) {
-  const post = { id: nextId++, title: fields.title, body: fields.body || '', authorId: fields.authorId };
-  posts.push(post);
-  return { ...post };
+  try {
+    return await prisma.post.create({
+      data: {
+        title: fields.title,
+        body: fields.body || "",
+        authorId: Number(fields.authorId),
+      },
+    });
+  } catch (error) {
+    throw translateDatabaseError(error);
+  }
 }
 
 async function update(id, patch) {
-  const post = posts.find((candidate) => candidate.id === Number(id));
-  if (!post) return null;
-  if (patch.title !== undefined) post.title = patch.title;
-  if (patch.body !== undefined) post.body = patch.body;
-  return { ...post };
+  const postId = Number(id);
+  const data = {};
+
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.body !== undefined) data.body = patch.body;
+
+  try {
+    const result = await prisma.post.updateMany({
+      where: { id: postId },
+      data,
+    });
+
+    if (result.count === 0) return null;
+
+    return prisma.post.findUnique({
+      where: { id: postId },
+    });
+  } catch (error) {
+    throw translateDatabaseError(error);
+  }
 }
 
 async function remove(id) {
-  const index = posts.findIndex((post) => post.id === Number(id));
-  if (index === -1) return false;
-  posts.splice(index, 1);
-  return true;
+  try {
+    const result = await prisma.post.deleteMany({
+      where: { id: Number(id) },
+    });
+
+    return result.count > 0;
+  } catch (error) {
+    throw translateDatabaseError(error);
+  }
 }
 
-module.exports = { findAll, findById, create, update, remove };
+module.exports = {
+  findAll,
+  findById,
+  create,
+  update,
+  remove,
+};
